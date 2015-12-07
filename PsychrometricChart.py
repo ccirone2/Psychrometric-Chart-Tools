@@ -1,6 +1,8 @@
-# This script will plot a psychrometric chart in IP units at a user specified ambient pressure.  Default, P_std=14.7 psi
+# PsychrometricChart.py
 #
-
+# This python script plots a psychrometric chart in IP units at a user specified ambient pressure (default is 14.7 psi). 
+# The chart includes reference lines for relative humidity, dry bulb temp, and wet bulb temp.
+#
 
 from math import exp, pow, log
 import matplotlib.pyplot as plt
@@ -41,11 +43,11 @@ def main():
         phi_ref, wb_ref, db_ref=ref_linesIP(float(p_atm_input), T_db_range)
         plt.xlabel('Dry Bulb Temperature (F)')
 
-        ax.annotate('100', xy=(84,.0281), color='b')
-        ax.annotate('80', xy=(90.5,.0267), color='b')
-        ax.annotate('60', xy=(96.5,.0240), color='b')
-        ax.annotate('40', xy=(102.5,.0190), color='b')
-        ax.annotate('20', xy=(107,.0107), color='b')
+        #ax.annotate('100', xy=(84,.0281), color='b')
+        #ax.annotate('80', xy=(90.5,.0267), color='b')
+        #ax.annotate('60', xy=(96.5,.0240), color='b')
+        #ax.annotate('40', xy=(102.5,.0190), color='b')
+        #ax.annotate('20', xy=(107,.0107), color='b')
 
     if units==2:
         p_atm_input = 101.325#input ("Enter ambient pressure (kPa, std_P = 101.325 kPa):")
