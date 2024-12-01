@@ -17,93 +17,112 @@ Dependencies:
     - numpy: For efficient numerical computations and array operations
     - matplotlib: For creating the visualization
     - typing: For type hints (Python 3.5+)
-
-The code uses vectorized operations through NumPy for improved performance
-compared to iterative calculations.
 """
 
 import numpy as np
-from typing import Tuple, List, Union, Optional
+from typing import Tuple, List, Optional, Union
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
-def calculate_saturation_pressure(T_rankine: np.ndarray) -> np.ndarray:
+def calculate_saturation_pressure(temp_rankine: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """
-    Calculate the saturation pressure of water vapor using vectorized operations.
+    Calculate the saturation pressure of water vapor using ASHRAE 2009 Fundamentals equation.
     
     Args:
-        T_rankine: Temperature in Rankine (°F + 459.67)
+        temp_rankine: Temperature in Rankine (°F + 459.67). Can be a single value or numpy array.
     
     Returns:
-        Array of saturation pressures in psi
-    
-    Uses ASHRAE 2009 Fundamentals, equation 6, vectorized for efficiency.
+        Saturation pressure in psi (pounds per square inch)
     """
+    # Constants from ASHRAE 2009 Fundamentals, equation 6
+    TEMP_DEPENDENT_COEFF = -1.0440397E4
+    CONSTANT_TERM = -1.1294650E1
+    LINEAR_COEFF = -2.7022355E-2
+    QUADRATIC_COEFF = 1.2890360E-5
+    CUBIC_COEFF = -2.4780681E-9
+    LOG_COEFF = 6.5459673
+    
+    # Vectorized calculation of saturation pressure
     return np.exp(
-        -1.0440397E4/T_rankine     # Temperature dependent term
-        - 1.1294650E1              # Constant term
-        - 2.7022355E-2*T_rankine   # Linear term
-        + 1.2890360E-5*T_rankine**2  # Quadratic term
-        - 2.4780681E-9*T_rankine**3  # Cubic term
-        + 6.5459673*np.log(T_rankine)  # Logarithmic term
+        TEMP_DEPENDENT_COEFF/temp_rankine +
+        CONSTANT_TERM +
+        LINEAR_COEFF*temp_rankine +
+        QUADRATIC_COEFF*np.power(temp_rankine, 2) +
+        CUBIC_COEFF*np.power(temp_rankine, 3) +
+        LOG_COEFF*np.log(temp_rankine)
     )
 
-def ref_linesIP(p_atm: float, T_db_range: np.ndarray) -> Tuple[List[np.ndarray], List[Tuple[List[float], List[float]]], List[Tuple[List[float], List[float]]]]:
+def generate_chart_reference_lines_imperial(
+    atmospheric_pressure: float,
+    drybulb_temps: np.ndarray
+) -> Tuple[List[np.ndarray], List[Tuple[List[float], List[float]]], List[Tuple[List[float], List[float]]]]:
     """
-    Generate reference lines for the psychrometric chart in Imperial units using vectorized operations.
+    Generate reference lines for the psychrometric chart in Imperial units.
     
     Args:
-        p_atm: Atmospheric pressure in psi (pounds per square inch)
-        T_db_range: Array of dry-bulb temperatures to plot in Fahrenheit
+        atmospheric_pressure: Atmospheric pressure in psi (pounds per square inch)
+        drybulb_temps: Array of dry-bulb temperatures to plot in Fahrenheit
     
     Returns:
         Tuple containing:
-        - phi_ref: List of humidity ratio arrays for each relative humidity percentage
-        - wb_ref: List of wet-bulb temperature reference line coordinates
-        - db_ref: List of dry-bulb temperature reference line coordinates
-    
-    The function uses NumPy's vectorized operations for efficient calculation of:
-        1. Relative humidity lines from 10% to 100% in 10% increments
-        2. Wet-bulb temperature reference lines
-        3. Dry-bulb temperature reference lines
+        - relative_humidity_lines: List of humidity ratio arrays for each RH percentage
+        - wetbulb_reference_lines: List of wet-bulb temperature reference line coordinates
+        - drybulb_reference_lines: List of dry-bulb temperature reference line coordinates
     """
-    # Initialize lists to store results
-    phi_ref = []
-    wb_ref = []
-    db_ref = []
+    # Initialize storage for reference lines
+    relative_humidity_lines = []
+    wetbulb_reference_lines = []
+    drybulb_reference_lines = []
     
-    # Convert temperature range to Rankine once for all calculations
-    T_rankine = T_db_range + 459.67
+    # Convert temperature array to Rankine scale for calculations
+    temp_rankine = drybulb_temps + 459.67
     
     # Calculate saturation pressure for all temperatures at once
-    p_ws = calculate_saturation_pressure(T_rankine)
+    saturation_pressure = calculate_saturation_pressure(temp_rankine)
     
-    # Create relative humidity reference lines from 10-100%, in increments of 10%
-    for phi in range(10, 101, 10):
-        # Vectorized calculation of water vapor pressure
-        p_w = phi/100.0 * p_ws
+    # Create relative humidity reference lines (10% to 100%)
+    for relative_humidity_percent in range(10, 101, 10):
+        # Calculate water vapor partial pressure at given relative humidity
+        vapor_pressure = relative_humidity_percent/100.0 * saturation_pressure
         
-        # Vectorized calculation of humidity ratio
-        W = 0.621945 * p_w/(p_atm - p_w)
-        phi_ref.append(W)
+        # Calculate humidity ratio array for this relative humidity
+        # 0.621945 is the ratio of molecular weight of water vapor to dry air
+        humidity_ratio = 0.621945 * vapor_pressure/(atmospheric_pressure - vapor_pressure)
+        relative_humidity_lines.append(humidity_ratio)
         
-        # At saturation conditions, calculate reference line endpoints
-        if phi == 100:
-            # Find points where temperature is a multiple of 10
-            temp_indices = np.where(T_db_range % 10 == 0)[0]
+        # At saturation (100% RH), calculate reference line endpoints
+        if relative_humidity_percent == 100:
+            # Get indices for temperatures at 10°F intervals
+            reference_temp_indices = np.where(np.mod(drybulb_temps, 10) == 0)[0]
             
-            for idx in temp_indices:
-                T_db = T_db_range[idx]
-                # Calculate wet-bulb temperature at zero humidity using vectorized operations
-                T_wbo = (1093.0 - 0.556*T_db) * W[idx]/0.24 + T_db
+            for index in reference_temp_indices:
+                current_drybulb = drybulb_temps[index]
                 
-                # Store coordinates for reference lines
-                wb_ref.append(([T_db, T_wbo], [W[idx], 0]))
-                db_ref.append(([T_db, T_db], [W[idx], 0]))
+                # Calculate wet-bulb temperature at zero humidity
+                # Using ASHRAE 2009 Fundamentals, equation 35
+                # Constants: 1093.0 and 0.556 are empirical coefficients
+                # 0.24 is the specific heat of air at constant pressure
+                wetbulb_temp_zero_humidity = (
+                    (1093.0 - 0.556*current_drybulb) * 
+                    humidity_ratio[index]/0.24 + current_drybulb
+                )
+                
+                # Store reference line coordinates
+                wetbulb_reference_lines.append(
+                    ([current_drybulb, wetbulb_temp_zero_humidity],
+                     [humidity_ratio[index], 0])
+                )
+                drybulb_reference_lines.append(
+                    ([current_drybulb, current_drybulb],
+                     [humidity_ratio[index], 0])
+                )
     
-    return phi_ref, wb_ref, db_ref
+    return relative_humidity_lines, wetbulb_reference_lines, drybulb_reference_lines
 
-def ref_linesSI(p_atm: float, T_db_range: np.ndarray) -> None:
+def generate_chart_reference_lines_metric(
+    atmospheric_pressure_kpa: float,
+    drybulb_temps_celsius: np.ndarray
+) -> None:
     """
     Placeholder for generating reference lines in SI units (metric system).
     
@@ -112,106 +131,147 @@ def ref_linesSI(p_atm: float, T_db_range: np.ndarray) -> None:
     - Pressures in kilopascals (kPa)
     - Humidity ratios in kg water vapor per kg dry air
     
-    The implementation will use NumPy for vectorized calculations.
+    Args:
+        atmospheric_pressure_kpa: Atmospheric pressure in kPa
+        drybulb_temps_celsius: Array of dry-bulb temperatures in Celsius
+    
+    Returns:
+        None (placeholder)
     """
     return
 
-def humidity_ratio(p: float, T_db: Union[float, np.ndarray], phi: float) -> Union[float, np.ndarray]:
+def calculate_humidity_ratio(
+    atmospheric_pressure: float,
+    drybulb_temp: float,
+    relative_humidity_percent: float
+) -> float:
     """
-    Calculate the humidity ratio (W) for given conditions using vectorized operations.
+    Calculate the humidity ratio (moisture content) for given conditions.
     
     Args:
-        p: Atmospheric pressure in psi
-        T_db: Dry-bulb temperature(s) in Fahrenheit (scalar or array)
-        phi: Relative humidity percentage (0-100)
+        atmospheric_pressure: Atmospheric pressure in psi
+        drybulb_temp: Dry-bulb temperature in Fahrenheit
+        relative_humidity_percent: Relative humidity percentage (0-100)
     
     Returns:
-        Humidity ratio in lb water vapor per lb dry air (scalar or array)
+        Humidity ratio in lb water vapor per lb dry air
     """
-    # Convert temperature to Rankine
-    T_rankine = T_db + 459.67
+    # Calculate saturation pressure at the given temperature
+    saturation_pressure = calculate_saturation_pressure(drybulb_temp + 459.67)
     
-    # Calculate saturation pressure using vectorized operations
-    p_ws = calculate_saturation_pressure(T_rankine)
+    # Calculate actual water vapor pressure at the given relative humidity
+    vapor_pressure = relative_humidity_percent/100.0 * saturation_pressure
     
-    # Calculate water vapor pressure and humidity ratio
-    p_w = phi/100.0 * p_ws
-    return 0.621945 * p_w/(p - p_w)
+    # Calculate and return humidity ratio
+    # 0.621945 is the ratio of molecular weight of water vapor to dry air
+    return 0.621945 * vapor_pressure/(atmospheric_pressure - vapor_pressure)
 
 def main() -> None:
     """
     Main function to create and display the psychrometric chart.
-    
-    This function uses NumPy arrays for efficient data handling and
-    matplotlib for visualization. All calculations are vectorized
-    for improved performance.
     """
-    # Set default parameters
-    units = 'IP'  # Imperial units
-    set_point = 'y'  # Include a state point on the chart
+    # Chart configuration
+    units_system = 'IP'  # 'IP' for Imperial, 'SI' for metric
+    include_state_point = True
     
     # Create the matplotlib figure and axis
-    fig = plt.figure()
+    fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(111)
     
-    if units == 'IP':
-        # Set up Imperial units parameters
-        p_atm_input = 14.7  # Standard atmospheric pressure in psi
+    if units_system == 'IP':
+        # Standard atmospheric pressure at sea level (psi)
+        atmospheric_pressure = 14.7
         
-        # Create temperature range array using NumPy
-        T_db_range = np.arange(32, 111)  # Temperature range from freezing to 110°F
+        # Define example state point conditions
+        if include_state_point:
+            state_point_drybulb = 75.0  # °F
+            state_point_humidity = 45.0  # %RH
+            state_point_moisture = calculate_humidity_ratio(
+                atmospheric_pressure,
+                state_point_drybulb,
+                state_point_humidity
+            )
         
-        # Define state point if requested
-        if set_point == 'y':
-            st_point_Tdb = 75   # State point dry-bulb temperature (°F)
-            st_point_rh = 45    # State point relative humidity (%)
-            st_point_W = humidity_ratio(p_atm_input, st_point_Tdb, st_point_rh)
-        
-        # Generate chart data using vectorized calculations
-        phi_ref, wb_ref, db_ref = ref_linesIP(float(p_atm_input), T_db_range)
+        # Generate chart data using numpy array for temperature range
+        drybulb_temps = np.arange(32, 111)  # °F (freezing to 110°F)
+        relative_humidity_lines, wetbulb_lines, drybulb_lines = generate_chart_reference_lines_imperial(
+            atmospheric_pressure,
+            drybulb_temps
+        )
         
         # Set axis labels for Imperial units
-        plt.xlabel('Dry Bulb Temperature (°F)')
-        plt.ylabel('Humidity Ratio (lb_w/lb_da)')
+        plt.xlabel('Dry-Bulb Temperature (°F)')
+        plt.ylabel('Humidity Ratio (lb_water/lb_dry_air)')
     
-    elif units == 'SI':
-        # Set up SI units parameters (placeholder)
-        p_atm_input = 101.325  # Standard atmospheric pressure in kPa
+    elif units_system == 'SI':
+        # Standard atmospheric pressure at sea level (kPa)
+        atmospheric_pressure = 101.325
         
-        # Create temperature range array using NumPy
-        T_db_range = np.arange(0, 51)  # Temperature range 0-50°C
+        if include_state_point:
+            state_point_drybulb = 25.0  # °C
+            state_point_humidity = 45.0  # %RH
+            state_point_moisture = calculate_humidity_ratio(
+                atmospheric_pressure,
+                state_point_drybulb,
+                state_point_humidity
+            )
         
-        if set_point == 'y':
-            st_point_Tdb = 25   # State point dry-bulb temperature (°C)
-            st_point_rh = 45    # State point relative humidity (%)
-            st_point_W = humidity_ratio(p_atm_input, st_point_Tdb, st_point_rh)
-        
-        phi_ref, wb_ref, db_ref = ref_linesSI(float(p_atm_input), T_db_range)
+        # Generate chart data (temperature range 0-50°C)
+        drybulb_temps = np.arange(0, 51)
+        relative_humidity_lines, wetbulb_lines, drybulb_lines = generate_chart_reference_lines_metric(
+            atmospheric_pressure,
+            drybulb_temps
+        )
         
         # Set axis labels for SI units
-        plt.xlabel('Dry Bulb Temperature (°C)')
-        plt.ylabel('Humidity Ratio (kg_w/kg_da)')
+        plt.xlabel('Dry-Bulb Temperature (°C)')
+        plt.ylabel('Humidity Ratio (kg_water/kg_dry_air)')
     
-    # Plot relative humidity lines using vectorized data
-    for i, w_values in enumerate(phi_ref):
-        plt.plot(T_db_range, w_values, 'b')
+    # Plot relative humidity lines with improved formatting
+    for line_index, humidity_ratios in enumerate(relative_humidity_lines):
+        relative_humidity = (line_index + 1) * 10
+        plt.plot(
+            drybulb_temps,
+            humidity_ratios,
+            'b',
+            alpha=0.7,
+            label=f'{relative_humidity}% RH' if line_index == 0 else None
+        )
     
     # Plot wet-bulb and dry-bulb reference lines
-    for wb in wb_ref:
-        plt.plot(wb[0], wb[1], 'b:')
+    for wetbulb_line in wetbulb_lines:
+        plt.plot(wetbulb_line[0], wetbulb_line[1], 'b:', alpha=0.5)
     
-    for db in db_ref:
-        plt.plot(db[0], db[1], 'b:')
+    for drybulb_line in drybulb_lines:
+        plt.plot(drybulb_line[0], drybulb_line[1], 'b:', alpha=0.5)
     
     # Plot state point if requested
-    if set_point == 'y':
-        plt.scatter(st_point_Tdb, st_point_W, color='r')
+    if include_state_point:
+        plt.scatter(
+            state_point_drybulb,
+            state_point_moisture,
+            color='r',
+            s=50,
+            label=f'State Point ({state_point_drybulb}°{"F" if units_system == "IP" else "C"}, '
+                  f'{state_point_humidity}% RH)'
+        )
     
-    # Configure axis formatting
-    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))  # Minor tick every 1°
-    ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.001))  # Minor tick every 0.001
-    plt.xlim(T_db_range[0], T_db_range[-1])
-    plt.ylim(0, 0.03)  # Set humidity ratio range
+    # Configure axis formatting and appearance
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.001))
+    plt.xlim(min(drybulb_temps), max(drybulb_temps))
+    plt.ylim(0, 0.03)
+    
+    # Add grid and legend for better readability
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Add title with pressure information
+    pressure_units = "psi" if units_system == "IP" else "kPa"
+    plt.title(
+        f'Psychrometric Chart (P = {atmospheric_pressure} {pressure_units})',
+        pad=20
+    )
     
     # Display the chart
     plt.show()
