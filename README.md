@@ -7,14 +7,9 @@ A comprehensive Python library for generating interactive psychrometric charts w
 - Generate psychrometric charts in both Standard and Metric units
 - Customizable atmospheric pressure settings (default: 14.7 psi / 101.325 kPa)
 - Plot multiple state points with temperature and relative humidity
-- Automatic calculation of humidity ratios
-- Reference lines for:
-  - Relative humidity (10% to 100%)
-  - Dry bulb temperature
-  - Wet bulb temperature
-- Save charts as PNG, PDF, or SVG files
+- Reference lines
 - Interactive chart manipulation
-- Dew point temperature lines
+- Save charts as PNG, PDF, or SVG files
 
 ## Usage
 
@@ -36,11 +31,15 @@ chart.add_state_point(state_point)
 chart.generate()
 ```
 
+## Example
+
+![Example Chart](Example.png)
+
 ## Installation
 
 Clone the repository:
 ```bash
-git clone https:github.com/ccirone2/psychrometric-chart-tools.git
+git clone https//:github.com/ccirone2/psychrometric-chart-tools.git
 ```
 
 Install the required dependencies:
